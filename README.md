@@ -21,8 +21,8 @@ Project description
 ---
 `static-web` provides a set of tools that allow the developer to process template HTML files and produce finalized HTML documents.
 
- - web-cc consumes a single template HTML file and produces a new HTML document with the extension .o.html . This HTML document is viewable in a browser but cross-page navigation may not work.
- - web-ld consumes all .o.html files and produces a new set of HTML documents in the specified output directory. The generated files will have a hashed filename that is based on the content. This will allow the web server to serve all HTML documents without a cache expiration time so they are always cached either in the proxies or the web browser.
+ - `web-cc` consumes a single template HTML file and produces a set of HTML documents inside a new directory with the suffix `.o` . These HTML documents are viewable in a browser but cross-page navigation may not work.
+ - `web-ld` consumes a set of `.o` directories and produces a new set of HTML documents in the specified output directory. The generated files will have a hashed filename that is based on the content. This will allow the web server to serve all HTML documents without a cache expiration time so they are always cached either in the proxies or the web browser. The output directory will also contain HTML documents with human-readable filenames that will redirect the browser to the real document with the hashed filename. This redirection file can be used for bookmarking purposes or shareable links.
 
 Template syntax
 ---
@@ -37,12 +37,16 @@ Variable substitution can be used anywhere in the document. For example:
 
     `<p> {{ title_name }} </p>`
 
-To generate multiple copies of a set of elements, add the attribute `loop` with the value `{{ table_var }}` to the parent element. For example:
+To generate multiple copies of a set of elements, add the attribute `data` with the value `table_var` to the parent element. For example:
 
 ```
-<div loop="{{ people }}">
-	<div> {{ first_name }} </div>
-	<div> {{ last_name }} </div>
-</div>
+<html data="main_table">
+	<div data="people">
+		<div> {{ first_name }} </div>
+		<div> {{ last_name }} </div>
+	</div>
+</html>
 ```
+
+The `data` attribute in the `<html>` tag has a special meaning. `web-cc` will generate a new document inside the `.o` directory for each row of this table.
 
