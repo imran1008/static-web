@@ -1,0 +1,57 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+/*
+ * html_parser.h
+ *
+ * Copyright (C) 2021  Imran Haider
+ */
+
+#ifndef HTML_PARSER_H
+#define HTML_PARSER_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#define HTML_PARSER_MAX_TOKENS 2048
+
+enum {
+	HTML_TOKEN_GREATERTHAN,
+	HTML_TOKEN_LESSTHAN,
+	HTML_TOKEN_WORD,
+	HTML_TOKEN_WHITESPACE,
+	HTML_TOKEN_EQUAL,
+	HTML_TOKEN_SINGLEQUOTE,
+	HTML_TOKEN_DOUBLEQUOTE,
+	HTML_TOKEN_AMPERSAND,
+	HTML_TOKEN_EXCLAMATIONMARK,
+	HTML_TOKEN_HYPHEN,
+	HTML_TOKEN_COLON,
+	HTML_TOKEN_OPENBRACE,
+	HTML_TOKEN_CLOSEBRACE,
+	HTML_TOKEN_OPENPAREN,
+	HTML_TOKEN_CLOSEPAREN,
+	HTML_TOKEN_SEMICOLON,
+	HTML_TOKEN_ASTERISK,
+	HTML_TOKEN_HASH,
+	HTML_TOKEN_COMMA,
+	HTML_TOKEN_HTML,
+	HTML_TOKEN_DATA,
+	HTML_TOKEN_SCRIPT,
+	HTML_TOKEN_STRING,
+	HTML_TOKEN_TEXT,
+	HTML_TOKEN_COMMENT,
+	HTML_TOKEN_STYLE,
+	HTML_TOKEN_END
+};
+
+struct html_tokens_t {
+	const int32_t *begin[HTML_PARSER_MAX_TOKENS];
+	const int32_t *end[HTML_PARSER_MAX_TOKENS];
+	uint8_t id[HTML_PARSER_MAX_TOKENS];
+	size_t count;
+	size_t capacity;
+};
+
+int html_parse(const int32_t *restrict in_data, size_t in_size);
+
+#endif
+

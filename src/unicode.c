@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * unicode.c
+ *
+ * Copyright (C) 2021  Imran Haider
+ */
+
 #include <unicode.h>
 
 #include <errno.h>
@@ -8,7 +15,7 @@
 
 #include <sys/mman.h>
 
-void unicode_string_free(int **restrict str, size_t count)
+void unicode_string_free(int32_t *restrict *restrict str, size_t count)
 {
 	size_t i;
 
@@ -16,7 +23,7 @@ void unicode_string_free(int **restrict str, size_t count)
 		free(str[i]);
 }
 
-int unicode_write_utf8_file(int fd, const char *filename, const int *in_str, size_t in_size)
+int unicode_write_utf8_file(int fd, const char *filename, const int32_t *in_str, size_t in_size)
 {
 	int out_fd, rc = 0;
 	size_t utf8_size = 0;
@@ -49,9 +56,9 @@ exit1:
 	return rc;
 }
 
-
 int unicode_write_utf8_string(
-		const int *restrict in_str, size_t in_size, char **restrict out_str, size_t *restrict out_size)
+		const int32_t *restrict in_str, size_t in_size, char **restrict out_str,
+		size_t *restrict out_size)
 {
 	int rc = 0;
 	size_t i;
@@ -63,7 +70,7 @@ int unicode_write_utf8_string(
 	 * To guard against rounding errors, we will actually allocate memory
 	 * that is 160% the size of the utf-32 string.
 	 */
-	const size_t utf8_buf_size = sizeof(int) * (in_size * 1.6) + *out_size;
+	const size_t utf8_buf_size = sizeof(int32_t) * (in_size * 1.6) + *out_size;
 
 	*out_str = malloc(utf8_buf_size);
 	if (__builtin_expect(*out_str == 0, 0)) {
@@ -82,38 +89,36 @@ exit1:
 	return rc;
 }
 
-int unicode_write_utf8_char(char **restrict s, int ch)
+int unicode_write_utf8_char(char **restrict s, int32_t ch)
 {
-	/* Note: The BMI instruction set is only available on
-	 * AMD Piledriver or newer and Intel Haswell or newer.
-	 * If you have a x86 CPU that was lauched post 2013,
-	 * you should be good.
-	 */
-
-	unsigned char *p = (unsigned char*) *s;
-	unsigned int cnt, i;
+	uint8_t *p = (uint8_t*) *s;
 
 	if (__builtin_expect(ch < 0, 0)) {
 		return -1;
 	}
 	else if (ch < 128) {
-		cnt = 1;
 		p[0] = ch;
+		++*s;
 	}
 	else {
-		cnt = 6 - (__builtin_ia32_lzcnt_u32(ch) - 1) / 5;
+#ifdef __BMI2__
+		uint32_t i, cnt = 6 - (__builtin_ia32_lzcnt_u32(ch) - 1) / 5;
+#else
+		int i, cnt = (ch != 0)? 6 - (__builtin_clz(ch) - 1) / 5 : 0;
+#endif
 		p[0] = 255 << (8 - cnt) | ch >> 6 * (cnt - 1);
 
 		for (i=1; i < cnt; ++i) {
 			p[i] = 128 | (ch >> 6 * (cnt - i - 1) & 63);
 		}
+
+		*s += cnt;
 	}
 
-	*s += cnt;
 	return 0;
 }
 
-int unicode_read_utf8_file(int fd, const char *filename, int **out_str, size_t *out_size)
+int unicode_read_utf8_file(int fd, const char *filename, int32_t **out_str, size_t *out_size)
 {
 	int in_fd, rc;
 
@@ -146,16 +151,19 @@ exit1:
 	return rc;
 }
 
-int unicode_read_utf8_string(const char *in_str, size_t in_size, int *restrict *restrict out_str, size_t *restrict out_size)
+int unicode_read_utf8_string(
+		const char *in_str, size_t in_size,
+		int32_t *restrict *restrict out_str, size_t *restrict out_size)
 {
-	int i, rc = 0;
+	int rc = 0;
+	size_t i;
 	const char *p, *q;
 
 	/* In the worst case, all the characters in the utf-8 string are
 	 * single-byte characters, and so we would need to allocate one
 	 * int per character.
 	 */
-	const size_t buf_size = sizeof(int) * in_size + *out_size;
+	const size_t buf_size = sizeof(int32_t) * in_size + *out_size;
 
 	*out_str = malloc(buf_size);
 	if (__builtin_expect(*out_str == 0, 0)) {
@@ -173,18 +181,17 @@ exit1:
 	return rc;
 }
 
-int unicode_read_utf8_char(const char **restrict s)
+int32_t unicode_read_utf8_char(const char **restrict s)
 {
-	/* Note: The BMI instruction set is only available on
-	 * AMD Piledriver or newer and Intel Haswell or newer.
-	 * If you have a x86 CPU that was lauched post 2013,
-	 * you should be good.
-	 */
+	const uint8_t *p = (const uint8_t *) *s;
+	int32_t code = 0;
+	uint16_t ch1 = p[0];
 
-	const unsigned char *p = (const unsigned char *) *s;
-	int code = 0;
-	unsigned short ch1 = p[0];
-	unsigned short i, cnt = __builtin_ia32_lzcnt_u16(~ch1 << 8);
+#ifdef __BMI2__
+	uint16_t i, cnt = __builtin_ia32_lzcnt_u16(~ch1 << 8);
+#else
+	int i, cnt = ( /* TODO */)? __builtin_clz(~ch1 << 24) : /* TODO */;
+#endif
 
 	if (cnt == 0) {
 		++*s;
@@ -209,11 +216,13 @@ fail:
 }
 
 int unicode_read_ascii_string(
-		const char *in_str, size_t in_size, int *restrict *restrict out_str, size_t *restrict out_size)
+		const char *in_str, size_t in_size,
+		int32_t *restrict *restrict out_str, size_t *restrict out_size)
 {
-	int i, rc = 0;
+	int rc = 0;
+	size_t i;
 	const char *p;
-	const size_t buf_size = sizeof(int) * in_size + *out_size;
+	const size_t buf_size = sizeof(int32_t) * in_size + *out_size;
 
 	*out_str = malloc(buf_size);
 	*out_size = in_size;
@@ -232,14 +241,16 @@ exit1:
 	return rc;
 }
 
-int unicode_read_ascii_char(const char **restrict s)
+int32_t unicode_read_ascii_char(const char **restrict s)
 {
-	int code = **s;
+	int32_t code = **s;
 	++*s;
 	return code;
 }
 
-int unicode_find(const int *restrict hay, const int *restrict needle, size_t hay_size, size_t needle_size)
+int unicode_find(
+		const int32_t *restrict hay, const int32_t *restrict needle,
+		size_t hay_size, size_t needle_size)
 {
 	size_t i, hay_minus_needle;
 
@@ -254,19 +265,21 @@ int unicode_find(const int *restrict hay, const int *restrict needle, size_t hay
 	 * needle with the expectation that it will match.
 	 */
 	for (i=0; i<=hay_minus_needle; ++i) {
-		if (__builtin_expect(hay[i] == *needle, 0)) {
-			if (unicode_compare_likely_equal(hay + i, needle, needle_size) == 0)
-				return i;
+		if (hay[i] != *needle) {
+			continue;
 		}
+
+		if (__builtin_expect(unicode_compare_likely_equal(hay + i, needle, needle_size) == 0, 1))
+			return i;
 	}
 
 	return -1;
 }
 
-int unicode_compare_likely_equal(const int *s1, const int *s2, size_t size)
+int32_t unicode_compare_likely_equal(const int32_t *s1, const int32_t *s2, size_t size)
 {
 	size_t i;
-	int diff = 0;
+	int32_t diff = 0;
 
 	for (i=0; i<size; ++i) {
 		diff = s1[i] - s2[i];
@@ -277,18 +290,17 @@ int unicode_compare_likely_equal(const int *s1, const int *s2, size_t size)
 	return diff;
 }
 
-int unicode_compare_likely_different(const int *s1, const int *s2, size_t size)
+int32_t unicode_compare_likely_different(const int32_t *s1, const int32_t *s2, size_t size)
 {
 	size_t i;
-	int diff = 0;
+	int32_t diff = 0;
 
 	for (i=0; i<size; ++i) {
 		diff = s1[i] - s2[i];
-		if (diff)
+		if (__builtin_expect(diff, 1))
 			break;
 	}
 
 	return diff;
 }
-
 

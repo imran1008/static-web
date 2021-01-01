@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * web_cc.c
+ *
+ * Copyright (C) 2021  Imran Haider
+ */
+
 #include <unicode.h>
 
 #include <ctype.h>

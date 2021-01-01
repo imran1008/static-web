@@ -3,7 +3,7 @@ Static Web
 
 What is it?
 ---
-`static-web` is a template system that consumes a set of template HTML files as well as an input dataset and produces a finalized HTML document.
+[static-web](https://gitea.cubicsignal.com/imran/static-web) is a template system that consumes a set of template HTML files as well as an input dataset and produces a set of finalized HTML documents.
 
 Project status
 ---

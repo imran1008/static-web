@@ -1,33 +1,16 @@
-#include <html_tokenizer.h>
-#include <unicode.h>
-#include <string.h>
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * html_tokenizer.c
+ *
+ * Copyright (C) 2021  Imran Haider
+ */
 
-enum {
-	TOKEN_GREATERTHAN,
-	TOKEN_LESSTHAN,
-	TOKEN_WORD,
-	TOKEN_WHITESPACE,
-	TOKEN_EQUAL,
-	TOKEN_SINGLEQUOTE,
-	TOKEN_DOUBLEQUOTE,
-	TOKEN_AMPERSAND,
-	TOKEN_EXCLAMATIONMARK,
-	TOKEN_HYPHEN,
-	TOKEN_COLON,
-	TOKEN_OPENBRACE,
-	TOKEN_CLOSEBRACE,
-	TOKEN_OPENPAREN,
-	TOKEN_CLOSEPAREN,
-	TOKEN_SEMICOLON,
-	TOKEN_ASTERISK,
-	TOKEN_HASH,
-	TOKEN_COMMA,
-	TOKEN_HTML,
-	TOKEN_DATA,
-	TOKEN_SCRIPT,
-	TOKEN_STRING,
-	TOKEN_END
-};
+#include <html_tokenizer.h>
+#include <html_parser.h>
+#include <unicode.h>
+
+#include <stdio.h>
+#include <string.h>
 
 enum {
 	KEYWORD_HTML,
@@ -39,39 +22,55 @@ enum {
 	KEYWORD_STYLE_END,
 	KEYWORD_COMMENT_START,
 	KEYWORD_COMMENT_END,
+	KEYWORD_TEXT_START,
+	KEYWORD_TEXT_END,
 	KEYWORD_END
 };
 
-struct tokens_t {
-	/* TODO */
+struct html_tokenizer_t {
+	const int32_t *restrict current;
+	const int32_t *restrict end;
+
+	/* tokens */
+	struct html_tokens_t *restrict tokens;
+	
+	/* keywords */
+	int32_t *restrict keyword_data[KEYWORD_END];
+	size_t keyword_size[KEYWORD_END];
+
+	/* parsing error handling */
+	const char *restrict exception_msg;
+	const int32_t *restrict exception_location;
+
+	/* flags */
+	unsigned int exception_pending :1;
 };
 
-struct keywords_t {
-	int   *data[KEYWORD_END];
-	size_t size[KEYWORD_END];
-};
-
-static int read_token_word(struct tokens_t *tokens, const int **s);
-static int read_token_whitespace(struct tokens_t *tokens, const int **s);
-static int read_token_char(struct tokens_t *tokens, const int **s, char ch, int id);
+static int read_token(struct html_tokenizer_t *restrict tokenizer);
+static int read_token_word(struct html_tokenizer_t *restrict tokenizer);
+static int read_token_whitespace(struct html_tokenizer_t *restrict tokenizer);
+static int read_token_char(struct html_tokenizer_t *restrict tokenizer, char ch, uint8_t token_id);
 static int read_token_keyword(
-		struct tokens_t *tokens, const int **s, const struct keywords_t *keywords, int keyword_id, int token_id);
-static int read_token_string(struct tokens_t *tokens, const int **s);
+		struct html_tokenizer_t *restrict tokenizer, int keyword_id, uint8_t token_id);
+static int read_token_string(struct html_tokenizer_t *restrict tokenizer);
 static int read_token_cdata(
-		struct tokens_t *tokens, const int **s, const struct keywords_t *keywords, size_t input_size,
-		size_t keyword_start, size_t keyword_end);
-static void add_token(struct tokens_t *tokens, int id, const int *begin, const int *end);
+		struct html_tokenizer_t *restrict tokenizer, size_t keyword_begin, size_t keyword_end,
+		uint8_t token_id);
+static int read_token_first_text(struct html_tokenizer_t *restrict tokenizer);
+static int read_token_text(struct html_tokenizer_t *restrict tokenizer);
+static void add_token(
+		struct html_tokenizer_t *restrict tokenizer, uint8_t id,
+		const int32_t *begin, const int32_t *end);
 
-
-void html_tokenizer_process(const int *restrict in_data, size_t in_size)
+int html_tokenize(
+		const int32_t *restrict in_data, size_t in_size, struct html_tokens_t *restrict tokens)
 {
-	struct tokens_t tokens;
-	struct keywords_t keywords = {0};
+	struct html_tokenizer_t tokenizer = {0};
+	int rc = 0;
 
-	const int *p = in_data;
-	const int *q = in_data + in_size;
+	tokenizer.tokens = tokens;
 
-#define REGISTER_KEYWORD(id,str) unicode_read_ascii_string(str, sizeof(str)-1, keywords.data+id, keywords.size+id)
+#define REGISTER_KEYWORD(id,str) unicode_read_ascii_string(str, sizeof(str)-1, tokenizer.keyword_data+id, tokenizer.keyword_size+id)
 	REGISTER_KEYWORD(KEYWORD_HTML,          "html");
 	REGISTER_KEYWORD(KEYWORD_DATA,          "data");
 	REGISTER_KEYWORD(KEYWORD_INCLUDE,       "include");
@@ -81,83 +80,133 @@ void html_tokenizer_process(const int *restrict in_data, size_t in_size)
 	REGISTER_KEYWORD(KEYWORD_STYLE_END,     "</style>");
 	REGISTER_KEYWORD(KEYWORD_COMMENT_START, "<!--");
 	REGISTER_KEYWORD(KEYWORD_COMMENT_END,   "-->");
+	REGISTER_KEYWORD(KEYWORD_TEXT_START,    ">");
+	REGISTER_KEYWORD(KEYWORD_TEXT_END,      "<");
 
+	tokenizer.current = in_data;
+	tokenizer.end = in_data + in_size;
 
-	while (p < q) {
-		if (
-			read_token_cdata(&tokens, &p, &keywords, q-p, KEYWORD_COMMENT_START, KEYWORD_COMMENT_END)  ||
-			read_token_string(&tokens, &p) ||
-			read_token_cdata(&tokens, &p, &keywords, q-p, KEYWORD_SCRIPT_START, KEYWORD_SCRIPT_END)  ||
-			read_token_cdata(&tokens, &p, &keywords, q-p, KEYWORD_STYLE_START, KEYWORD_STYLE_END)  ||
+	/* process first token */
+	int processed = read_token(&tokenizer) || read_token_first_text(&tokenizer);
+	if (!processed) {
+		tokenizer.exception_pending = 1;
+		tokenizer.exception_msg = "Unrecognized token";
+		tokenizer.exception_location = tokenizer.current;
+	}
 
-			read_token_char(&tokens, &p, '>',  TOKEN_GREATERTHAN)     ||
-			read_token_char(&tokens, &p, '<',  TOKEN_LESSTHAN)        ||
-			read_token_char(&tokens, &p, '\'', TOKEN_SINGLEQUOTE)     ||
-			read_token_char(&tokens, &p, '"',  TOKEN_DOUBLEQUOTE)     ||
-			read_token_char(&tokens, &p, '&',  TOKEN_AMPERSAND)       ||
-			read_token_char(&tokens, &p, '!',  TOKEN_EXCLAMATIONMARK) ||
-			read_token_char(&tokens, &p, '=',  TOKEN_EQUAL)           ||
-			read_token_char(&tokens, &p, '-',  TOKEN_HYPHEN)          ||
-			read_token_char(&tokens, &p, ':',  TOKEN_COLON)           ||
-			read_token_char(&tokens, &p, '{',  TOKEN_OPENBRACE)       ||
-			read_token_char(&tokens, &p, '}',  TOKEN_CLOSEBRACE)      ||
-			read_token_char(&tokens, &p, '(',  TOKEN_OPENPAREN)       ||
-			read_token_char(&tokens, &p, ')',  TOKEN_CLOSEPAREN)      ||
-			read_token_char(&tokens, &p, ';',  TOKEN_SEMICOLON)       ||
-			read_token_char(&tokens, &p, '*',  TOKEN_ASTERISK)        ||
-			read_token_char(&tokens, &p, '#',  TOKEN_HASH)            ||
-			read_token_char(&tokens, &p, ',',  TOKEN_COMMA)           ||
+	/* process all remaining tokens */
+	if (tokenizer.exception_pending == 0) {
+		while (tokenizer.current < tokenizer.end) {
+			processed = read_token(&tokenizer) || read_token_text(&tokenizer);
 
-			read_token_keyword(&tokens, &p, &keywords, 0, TOKEN_HTML) ||
-			read_token_keyword(&tokens, &p, &keywords, 1, TOKEN_DATA) ||
-
-			read_token_word(&tokens, &p)        ||
-			read_token_whitespace(&tokens, &p)) {
-			continue;
+			if (processed) {
+				if (__builtin_expect(tokenizer.exception_pending, 0))
+					break;
+			}
+			else {
+				tokenizer.exception_pending = 1;
+				tokenizer.exception_msg = "Unrecognized token";
+				tokenizer.exception_location = tokenizer.current;
+				break;
+			}
 		}
 	}
 
-	unicode_string_free(keywords.data, sizeof(keywords.data) / sizeof(keywords.data[0]));
+	if (__builtin_expect(tokenizer.exception_pending, 0)) {
+		const int *p;
+		int column_num = 0;
+		int line_num = 0;
+
+		for (p = in_data; p < tokenizer.exception_location; ++p) {
+			if (*p != '\n') {
+				++column_num;	
+			}
+			else {
+				++line_num;
+				column_num = 0;
+			}
+		}
+
+		fprintf(stderr, "html_tokenizer: %s on line %d, column %d\n",
+				tokenizer.exception_msg, line_num, column_num);
+		rc = -1;
+	}
+
+	unicode_string_free(tokenizer.keyword_data, KEYWORD_END);
+	return rc;
 }
 
-static int read_token_word(struct tokens_t *tokens, const int **s)
+static int read_token(struct html_tokenizer_t *restrict tokenizer)
 {
-	const int *p = *s;
+	return 
+		   read_token_cdata(tokenizer, KEYWORD_COMMENT_START, KEYWORD_COMMENT_END, HTML_TOKEN_COMMENT)
+		|| read_token_cdata(tokenizer, KEYWORD_SCRIPT_START, KEYWORD_SCRIPT_END, HTML_TOKEN_SCRIPT)
+		|| read_token_cdata(tokenizer, KEYWORD_STYLE_START, KEYWORD_STYLE_END, HTML_TOKEN_STYLE)
+		|| read_token_string(tokenizer)
+		|| read_token_char(tokenizer, '>',  HTML_TOKEN_GREATERTHAN)
+		|| read_token_char(tokenizer, '<',  HTML_TOKEN_LESSTHAN)
+		|| read_token_char(tokenizer, '\'', HTML_TOKEN_SINGLEQUOTE)
+		|| read_token_char(tokenizer, '"',  HTML_TOKEN_DOUBLEQUOTE)
+		|| read_token_char(tokenizer, '&',  HTML_TOKEN_AMPERSAND)
+		|| read_token_char(tokenizer, '!',  HTML_TOKEN_EXCLAMATIONMARK)
+		|| read_token_char(tokenizer, '=',  HTML_TOKEN_EQUAL)
+		|| read_token_char(tokenizer, '-',  HTML_TOKEN_HYPHEN)
+		|| read_token_char(tokenizer, ':',  HTML_TOKEN_COLON)
+		|| read_token_char(tokenizer, '{',  HTML_TOKEN_OPENBRACE)
+		|| read_token_char(tokenizer, '}',  HTML_TOKEN_CLOSEBRACE)
+		|| read_token_char(tokenizer, '(',  HTML_TOKEN_OPENPAREN)
+		|| read_token_char(tokenizer, ')',  HTML_TOKEN_CLOSEPAREN)
+		|| read_token_char(tokenizer, ';',  HTML_TOKEN_SEMICOLON)
+		|| read_token_char(tokenizer, '*',  HTML_TOKEN_ASTERISK)
+		|| read_token_char(tokenizer, '#',  HTML_TOKEN_HASH)
+		|| read_token_char(tokenizer, ',',  HTML_TOKEN_COMMA)
+		|| read_token_keyword(tokenizer, KEYWORD_HTML, HTML_TOKEN_HTML)
+		|| read_token_keyword(tokenizer, KEYWORD_DATA, HTML_TOKEN_DATA)
+		|| read_token_word(tokenizer)
+		|| read_token_whitespace(tokenizer);
+}
+
+static int read_token_word(struct html_tokenizer_t *restrict tokenizer)
+{
+	const int *restrict p = tokenizer->current;
 
 	if (__builtin_expect((*p < 'A' || *p > 'Z') && (*p < 'a' || *p > 'z') && *p != '_', 0))
 		return 0;
 
 	++p;
-	while ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_')
+	while ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') ||
+			*p == '_')
 		++p;
 
-	add_token(tokens, TOKEN_WORD, *s, p);
-	*s = p;
-
+	add_token(tokenizer, HTML_TOKEN_WORD, tokenizer->current, p);
+	tokenizer->current = p;
 	return 1;
 }
 
-static int read_token_whitespace(struct tokens_t *tokens, const int **s)
+static int read_token_whitespace(struct html_tokenizer_t *restrict tokenizer)
 {
-	const int *p = *s;
+	const int *restrict p = tokenizer->current;
 
-	while (*p == ' ' || *p == '\n' || *p == '\t')
+	while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t')
 		++p;
 
-	if (p - *s) {
-		add_token(tokens, TOKEN_WHITESPACE, *s, p);
-		*s = p;
+	if (p - tokenizer->current) {
+		add_token(tokenizer, HTML_TOKEN_WHITESPACE, tokenizer->current, p);
+		tokenizer->current = p;
 		return 1;
 	}
 
 	return 0;
 }
 
-static int read_token_char(struct tokens_t *tokens, const int **s, char ch, int id)
+static int read_token_char(struct html_tokenizer_t *restrict tokenizer, char ch, uint8_t token_id)
 {
-	if (**s == ch) {
-		add_token(tokens, id, *s, *s+1);
-		++*s;
+	const int *restrict p = tokenizer->current;
+
+	if (*tokenizer->current == ch) {
+		++p;
+		add_token(tokenizer, token_id, tokenizer->current, p);
+		tokenizer->current = p;
 		return 1;
 	}
 
@@ -165,48 +214,69 @@ static int read_token_char(struct tokens_t *tokens, const int **s, char ch, int 
 }
 
 static int read_token_keyword(
-		struct tokens_t *tokens, const int **s, const struct keywords_t *keywords, int keyword_id, int token_id)
+		struct html_tokenizer_t *restrict tokenizer, int keyword_id, uint8_t token_id)
 {
-	if (unicode_compare_likely_equal(*s, keywords->data[keyword_id], keywords->size[keyword_id]) == 0) {
-		add_token(tokens, token_id, *s, *s+1);
-		++*s;
+	size_t size = tokenizer->keyword_size[keyword_id];
+	const int *restrict p = tokenizer->current;
+
+	if (unicode_compare_likely_equal(p, tokenizer->keyword_data[keyword_id], size) == 0) {
+		p += size;
+		add_token(tokenizer, token_id, tokenizer->current, p);
+		tokenizer->current = p;
 		return 1;
 	}
 
 	return 0;
 }
 
-static int read_token_string(struct tokens_t *tokens, const int **s)
+static int read_token_string(struct html_tokenizer_t *restrict tokenizer)
 {
-	const int *p = *s;
+	const int *restrict p = tokenizer->current;
 
-	if (*p == '"') {
-		while (*(++p) != '"') {
-			if (*p == '\\') ++p;
+	if (__builtin_expect(*p != '"', 0))
+		return 0;
+
+	++p;
+	while (p < tokenizer->end) {
+		if (*p == '\\') {
+			p += 2;
+		}
+		else if (*p == '"') {
+			add_token(tokenizer, HTML_TOKEN_STRING, tokenizer->current+1, p);
+			tokenizer->current = p;
+			return 1;
+		}
+		else {
+			++p;
 		}
 	}
 
-	if (p - *s) {
-		add_token(tokens, TOKEN_STRING, *s, p);
-		*s = p;
-		return 1;
-	}
-
-	return 0;
+	tokenizer->exception_pending = 1;
+	tokenizer->exception_msg = "Unterminated string literal";
+	tokenizer->exception_location = tokenizer->current;
+	return 1;
 }
 
 static int read_token_cdata(
-		struct tokens_t *tokens, const int **s, const struct keywords_t *keywords, size_t input_size,
-		size_t keyword_start, size_t keyword_end)
+		struct html_tokenizer_t *restrict tokenizer, size_t keyword_begin, size_t keyword_end,
+		uint8_t token_id)
 {
+	const int *restrict p = tokenizer->current;
+	const int *keyword_data = tokenizer->keyword_data[keyword_begin];
+	size_t keyword_size = tokenizer->keyword_size[keyword_begin];
 
-	const int *p = *s;
-	if (unicode_compare_likely_equal(p, keywords->data[keyword_start], keywords->size[keyword_start]) == 0) {
-		int res = unicode_find(p + keywords->size[keyword_start], keywords->data[keyword_end], input_size,
-				keywords->size[keyword_end]);
+	if (unicode_compare_likely_equal(p, keyword_data, keyword_size) == 0) {
+		p += keyword_size;
+
+		keyword_data = tokenizer->keyword_data[keyword_end];
+		keyword_size = tokenizer->keyword_size[keyword_end];
+
+		int res = unicode_find(p, keyword_data, tokenizer->end - p, keyword_size);
 
 		if (res > -1) {
-			*s += keywords->size[keyword_start] + res;
+			p += res;
+			add_token(tokenizer, token_id, tokenizer->current, p);
+			tokenizer->current = p;
 			return 1;
 		}
 	}
@@ -214,9 +284,61 @@ static int read_token_cdata(
 	return 0;
 }
 
-static void add_token(struct tokens_t *tokens, int id, const int *begin, const int *end)
+static int read_token_first_text(struct html_tokenizer_t *restrict tokenizer)
 {
-	/* TODO */
+	const int *restrict p = tokenizer->current;
+
+	while (*p != '<')
+		++p;
+
+	if (p - tokenizer->current) {
+		add_token(tokenizer, HTML_TOKEN_TEXT, tokenizer->current, p);
+		tokenizer->current = p;
+		return 1;
+	}
+
+	return 0;
+}
+
+static int read_token_text(struct html_tokenizer_t *restrict tokenizer)
+{
+	const int *restrict p = tokenizer->current - 1;
+
+	if (*p == '>') {
+		++p;
+
+		while (*p != '<')
+			++p;
+
+		if (p - tokenizer->current) {
+			add_token(tokenizer, HTML_TOKEN_TEXT, tokenizer->current, p);
+			tokenizer->current = p;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static void add_token(
+		struct html_tokenizer_t *restrict tokenizer, uint8_t id,
+		const int32_t *begin, const int32_t *end)
+{
+	struct html_tokens_t *restrict tokens = tokenizer->tokens;
+	size_t i = tokens->count;
+
+	if (i < tokens->capacity) {
+		tokens->begin[i] = begin;
+		tokens->end[i] = end;
+		tokens->id[i] = id;
+
+		tokens->count = i+1;
+	}
+	else {
+		tokenizer->exception_pending = 1;
+		tokenizer->exception_msg = "Not enough space for tokens";
+		tokenizer->exception_location = begin;
+	}
 }
 
 

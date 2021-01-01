@@ -1,9 +1,10 @@
 project('static-web', 'c', default_options: [ 'b_ndebug=if-release' ])
 
 src = [
-  'web-cc.c',
+  'web_cc.c',
   'unicode.c',
-  'html_tokenizer.c'
+  'html_tokenizer.c',
+  'html_parser.c'
 ]
 
 include = include_directories('.')
