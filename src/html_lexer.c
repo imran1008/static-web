@@ -62,7 +62,7 @@ static void add_token(
 		struct html_lexer_t *restrict lexer, uint8_t id,
 		const int32_t *begin, const int32_t *end);
 
-int html_tokenize(
+int html_lex(
 		const int32_t *restrict in_data, size_t in_size, struct html_tokens_t *restrict tokens)
 {
 	struct html_lexer_t lexer = {0};
