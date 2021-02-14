@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * html_tokenizer.h
+ * html_lexer.h
  *
  * Copyright (C) 2021  Imran Haider
  */
 
-#ifndef HTML_TOKENIZER_H
-#define HTML_TOKENIZER_H
+#ifndef HTML_LEXER_H
+#define HTML_LEXER_H
 
 #include <html_parser.h>
 #include <stddef.h>

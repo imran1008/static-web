@@ -3,7 +3,7 @@ project('static-web', 'c', default_options: [ 'b_ndebug=if-release' ])
 src = [
   'web_cc.c',
   'unicode.c',
-  'html_tokenizer.c',
+  'html_lexer.c',
   'html_parser.c'
 ]
 
