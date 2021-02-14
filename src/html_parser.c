@@ -6,7 +6,7 @@
  */
 
 #include <html_parser.h>
-#include <html_tokenizer.h>
+#include <html_lexer.h>
 
 int html_parse(const int32_t *restrict in_data, size_t in_size)
 {
