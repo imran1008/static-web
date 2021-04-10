@@ -8,15 +8,18 @@
 #ifndef HTML_PARSER_H
 #define HTML_PARSER_H
 
+#include <unicode.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#define HTML_PARSER_MAX_TOKENS 2048
+#define HTML_PARSER_MAX_TOKENS		2048
+#define HTML_PARSER_MAX_NODES		1024
+#define HTML_PARSER_MAX_ATTRIBUTES  2048
 
 enum {
 	HTML_TOKEN_GREATERTHAN,
 	HTML_TOKEN_LESSTHAN,
-	HTML_TOKEN_WORD,
+	HTML_TOKEN_IDENTIFIER,
 	HTML_TOKEN_WHITESPACE,
 	HTML_TOKEN_EQUAL,
 	HTML_TOKEN_SINGLEQUOTE,
@@ -33,6 +36,7 @@ enum {
 	HTML_TOKEN_ASTERISK,
 	HTML_TOKEN_HASH,
 	HTML_TOKEN_COMMA,
+	HTML_TOKEN_SLASH,
 	HTML_TOKEN_HTML,
 	HTML_TOKEN_DATA,
 	HTML_TOKEN_SCRIPT,
@@ -40,18 +44,37 @@ enum {
 	HTML_TOKEN_TEXT,
 	HTML_TOKEN_COMMENT,
 	HTML_TOKEN_STYLE,
+	HTML_TOKEN_INCLUDE,
 	HTML_TOKEN_END
 };
 
+/* Must be less than HTML_TOKEN_END */
+typedef uint8_t html_token_id_t;
+
+/* Must be less than HTML_PARSER_MAX_TOKENS */
+typedef uint16_t html_token_idx_t;
+
 struct html_tokens_t {
-	const int32_t *begin[HTML_PARSER_MAX_TOKENS];
-	const int32_t *end[HTML_PARSER_MAX_TOKENS];
-	uint8_t id[HTML_PARSER_MAX_TOKENS];
+	const utf32_t *begin[HTML_PARSER_MAX_TOKENS];
+	const utf32_t *end[HTML_PARSER_MAX_TOKENS];
+	html_token_id_t id[HTML_PARSER_MAX_TOKENS];
 	size_t count;
-	size_t capacity;
 };
 
-int html_parse(const int32_t *restrict in_data, size_t in_size);
+struct html_tree_t {
+	html_token_idx_t node_parent[HTML_PARSER_MAX_NODES];
+	html_token_idx_t node_tag_name[HTML_PARSER_MAX_NODES];
+
+	html_token_idx_t attrib_parent[HTML_PARSER_MAX_ATTRIBUTES];
+	html_token_idx_t attrib_name[HTML_PARSER_MAX_ATTRIBUTES];
+	html_token_idx_t attrib_value[HTML_PARSER_MAX_ATTRIBUTES];
+
+	size_t attrib_count;
+	size_t node_count;
+};
+
+int html_parse(const utf32_t *restrict in_data, size_t in_size, struct html_tree_t *restrict tree);
+void html_build(utf32_t **out_data, size_t *out_size, const struct html_tree_t *restrict tree);
 
 #endif
 

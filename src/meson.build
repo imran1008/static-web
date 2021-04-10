@@ -4,7 +4,7 @@ src = [
   'web_cc.c',
   'unicode.c',
   'html_lexer.c',
-  'html_parser.c'
+  'html_parser.c',
 ]
 
 include = include_directories('.')

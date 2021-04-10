@@ -15,7 +15,7 @@
 
 #include <sys/mman.h>
 
-void unicode_string_free(int32_t *restrict *restrict str, size_t count)
+void unicode_utf32_string_free(utf32_t *restrict *restrict str, size_t count)
 {
 	size_t i;
 
@@ -23,7 +23,15 @@ void unicode_string_free(int32_t *restrict *restrict str, size_t count)
 		free(str[i]);
 }
 
-int unicode_write_utf8_file(int fd, const char *filename, const int32_t *in_str, size_t in_size)
+void unicode_utf8_string_free(char *restrict *restrict str, size_t count)
+{
+	size_t i;
+
+	for (i=0; i<count; ++i)
+		free(str[i]);
+}
+
+int unicode_write_utf8_file(int fd, const char *filename, const utf32_t *in_str, size_t in_size)
 {
 	int out_fd, rc = 0;
 	size_t utf8_size = 0;
@@ -57,7 +65,7 @@ exit1:
 }
 
 int unicode_write_utf8_string(
-		const int32_t *restrict in_str, size_t in_size, char **restrict out_str,
+		const utf32_t *restrict in_str, size_t in_size, char **restrict out_str,
 		size_t *restrict out_size)
 {
 	int rc = 0;
@@ -70,7 +78,7 @@ int unicode_write_utf8_string(
 	 * To guard against rounding errors, we will actually allocate memory
 	 * that is 160% the size of the utf-32 string.
 	 */
-	const size_t utf8_buf_size = sizeof(int32_t) * (in_size * 1.6) + *out_size;
+	const size_t utf8_buf_size = sizeof(utf32_t) * (in_size * 1.6) + *out_size;
 
 	*out_str = malloc(utf8_buf_size);
 	if (__builtin_expect(*out_str == 0, 0)) {
@@ -89,7 +97,7 @@ exit1:
 	return rc;
 }
 
-int unicode_write_utf8_char(char **restrict s, int32_t ch)
+int unicode_write_utf8_char(char **restrict s, utf32_t ch)
 {
 	uint8_t *p = (uint8_t*) *s;
 
@@ -118,7 +126,7 @@ int unicode_write_utf8_char(char **restrict s, int32_t ch)
 	return 0;
 }
 
-int unicode_read_utf8_file(int fd, const char *filename, int32_t **out_str, size_t *out_size)
+int unicode_read_utf8_file(int fd, const char *filename, utf32_t **out_str, size_t *out_size)
 {
 	int in_fd, rc;
 
@@ -153,7 +161,7 @@ exit1:
 
 int unicode_read_utf8_string(
 		const char *in_str, size_t in_size,
-		int32_t *restrict *restrict out_str, size_t *restrict out_size)
+		utf32_t *restrict *restrict out_str, size_t *restrict out_size)
 {
 	int rc = 0;
 	size_t i;
@@ -163,7 +171,7 @@ int unicode_read_utf8_string(
 	 * single-byte characters, and so we would need to allocate one
 	 * int per character.
 	 */
-	const size_t buf_size = sizeof(int32_t) * in_size + *out_size;
+	const size_t buf_size = sizeof(utf32_t) * in_size + *out_size;
 
 	*out_str = malloc(buf_size);
 	if (__builtin_expect(*out_str == 0, 0)) {
@@ -184,13 +192,15 @@ exit1:
 int32_t unicode_read_utf8_char(const char **restrict s)
 {
 	const uint8_t *p = (const uint8_t *) *s;
-	int32_t code = 0;
-	uint16_t ch1 = p[0];
+	utf32_t code = 0;
 
 #ifdef __BMI2__
+	uint16_t ch1 = p[0];
 	uint16_t i, cnt = __builtin_ia32_lzcnt_u16(~ch1 << 8);
 #else
-	int i, cnt = ( /* TODO */)? __builtin_clz(~ch1 << 24) : /* TODO */;
+	uint32_t ch1 = p[0];
+	uint32_t lshift_invert = ~ch1 << 24;
+	int i, cnt = (lshift_invert)? __builtin_clz(lshift_invert) : 0;
 #endif
 
 	if (cnt == 0) {
@@ -217,12 +227,12 @@ fail:
 
 int unicode_read_ascii_string(
 		const char *in_str, size_t in_size,
-		int32_t *restrict *restrict out_str, size_t *restrict out_size)
+		utf32_t *restrict *restrict out_str, size_t *restrict out_size)
 {
 	int rc = 0;
 	size_t i;
 	const char *p;
-	const size_t buf_size = sizeof(int32_t) * in_size + *out_size;
+	const size_t buf_size = sizeof(utf32_t) * in_size + *out_size;
 
 	*out_str = malloc(buf_size);
 	*out_size = in_size;
@@ -241,15 +251,15 @@ exit1:
 	return rc;
 }
 
-int32_t unicode_read_ascii_char(const char **restrict s)
+utf32_t unicode_read_ascii_char(const char **restrict s)
 {
-	int32_t code = **s;
+	utf32_t code = **s;
 	++*s;
 	return code;
 }
 
 int unicode_find(
-		const int32_t *restrict hay, const int32_t *restrict needle,
+		const utf32_t *restrict hay, const utf32_t *restrict needle,
 		size_t hay_size, size_t needle_size)
 {
 	size_t i, hay_minus_needle;
@@ -276,10 +286,10 @@ int unicode_find(
 	return -1;
 }
 
-int32_t unicode_compare_likely_equal(const int32_t *s1, const int32_t *s2, size_t size)
+utf32_t unicode_compare_likely_equal(const utf32_t *s1, const utf32_t *s2, size_t size)
 {
 	size_t i;
-	int32_t diff = 0;
+	utf32_t diff = 0;
 
 	for (i=0; i<size; ++i) {
 		diff = s1[i] - s2[i];
@@ -290,10 +300,10 @@ int32_t unicode_compare_likely_equal(const int32_t *s1, const int32_t *s2, size_
 	return diff;
 }
 
-int32_t unicode_compare_likely_different(const int32_t *s1, const int32_t *s2, size_t size)
+utf32_t unicode_compare_likely_different(const utf32_t *s1, const utf32_t *s2, size_t size)
 {
 	size_t i;
-	int32_t diff = 0;
+	utf32_t diff = 0;
 
 	for (i=0; i<size; ++i) {
 		diff = s1[i] - s2[i];

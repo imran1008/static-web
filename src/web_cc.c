@@ -6,6 +6,7 @@
  */
 
 #include <unicode.h>
+#include <html_parser.h>
 
 #include <ctype.h>
 #include <errno.h>
@@ -92,7 +93,7 @@ int main(int argc, char **argv)
 	/* clean up */
 	close(out_fd);
 exit3:
-	unicode_string_free(&input_data, 1);
+	unicode_utf32_string_free(&input_data, 1);
 exit2:
 	close(cwd_fd);
 exit1:
@@ -138,6 +139,9 @@ exit1:
 
 static int compile_data(const int *restrict input, size_t size, int out_fd)
 {
+	struct html_tree_t tree = { 0 };
+	html_parse(input, size, &tree);
+
 	/* FIXME: for debugging only */
 	write_data(out_fd, 0, input, size);
 

@@ -9,11 +9,13 @@
 #define HTML_LEXER_H
 
 #include <html_parser.h>
+#include <unicode.h>
+
 #include <stddef.h>
 #include <stdint.h>
 
 int html_lex(
-		const int32_t *restrict in_data, size_t in_size, struct html_tokens_t *restrict tokens);
+		const utf32_t *restrict in_data, size_t in_size, struct html_tokens_t *restrict tokens);
 
 
 #endif

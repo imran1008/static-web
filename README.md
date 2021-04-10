@@ -64,10 +64,6 @@ Data syntax
 ---
 The input data for the templates will be stored as markdown documents. Most git web frontends provide a nice markdown viewer and editor. Using the markdown format will enable developers to quickly make hand-written edits when necessary.
 
-System requirements
----
-This project has a hard dependency on x86 processors with the BMI instruction set. These instructions are available in AMD Piledriver (or newer) and Intel Haswell (or newer). If you have an x86 CPU that was launched after year 2013, you should be good.
-
 Build instructions
 ---
 This project requires the [meson](https://mesonbuild.com/) build system. Run the following commands to build all targets:
