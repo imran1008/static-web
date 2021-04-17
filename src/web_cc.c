@@ -142,8 +142,12 @@ static int compile_data(const int *restrict input, size_t size, int out_fd)
 	struct html_tree_t tree = { 0 };
 	html_parse(input, size, &tree);
 
+	utf32_t *output;
+	size_t output_size = 0;
+	html_build(&output, &output_size, &tree);
+
 	/* FIXME: for debugging only */
-	write_data(out_fd, 0, input, size);
+	write_data(out_fd, 0, output, output_size);
 
 	return 0;
 }

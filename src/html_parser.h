@@ -12,9 +12,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define HTML_PARSER_MAX_TOKENS		2048
-#define HTML_PARSER_MAX_NODES		1024
+#define HTML_PARSER_MAX_TOKENS      2048
+#define HTML_PARSER_MAX_NODES       1024
 #define HTML_PARSER_MAX_ATTRIBUTES  2048
+#define HTML_PARSER_MAX_SIZE        65536    /* in characters */
+#define HTML_PARSER_MAX_STACK_SIZE  1000
 
 enum {
 	HTML_TOKEN_GREATERTHAN,
@@ -62,6 +64,8 @@ struct html_tokens_t {
 };
 
 struct html_tree_t {
+	struct html_tokens_t tokens;
+
 	html_token_idx_t node_parent[HTML_PARSER_MAX_NODES];
 	html_token_idx_t node_tag_name[HTML_PARSER_MAX_NODES];
 
@@ -74,7 +78,9 @@ struct html_tree_t {
 };
 
 int html_parse(const utf32_t *restrict in_data, size_t in_size, struct html_tree_t *restrict tree);
-void html_build(utf32_t **out_data, size_t *out_size, const struct html_tree_t *restrict tree);
+void html_build(
+		utf32_t *restrict *restrict out_data, size_t *restrict out_size,
+		const struct html_tree_t *restrict tree);
 
 #endif
 

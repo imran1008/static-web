@@ -10,54 +10,56 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include <string.h>
+#include <stdlib.h>
+
 //#define TRACE_TOKENS
 
 
-#define EXPECT_TOKEN_1_1(parser,p,token) \
+#define EXPECT_TOKEN_1_1(tree,p,token) \
 	do {\
-		if (__builtin_expect(parser->tokens.id[p] != token, 0))\
+		if (__builtin_expect(tree->tokens.id[p] != token, 0))\
 			return 0;\
 		++p;\
 	} while(0)
 
-#define EXPECT_TOKEN_2_1(parser,p,token1,token2) \
+#define EXPECT_TOKEN_2_1(tree,p,token1,token2) \
 	do {\
-		if (__builtin_expect(parser->tokens.id[p] != token1 && \
-					         parser->tokens.id[p] != token2, 0))\
+		if (__builtin_expect(tree->tokens.id[p] != token1 && \
+					         tree->tokens.id[p] != token2, 0))\
 			return 0;\
 		++p;\
 	} while(0)
 
-#define EXPECT_TOKEN_1_0N(parser,p,token) \
+#define EXPECT_TOKEN_1_0N(tree,p,token) \
 	do {\
-		while (parser->tokens.id[p] == token) {\
+		while (tree->tokens.id[p] == token) {\
 			++p;\
 		}\
 	} while(0)
 
-#define EXPECT_TOKEN_2_0N(parser,p,token1,token2) \
+#define EXPECT_TOKEN_2_0N(tree,p,token1,token2) \
 	do {\
-		while (parser->tokens.id[p] == token1 || parser->tokens.id[p] == token2) {\
+		while (tree->tokens.id[p] == token1 || tree->tokens.id[p] == token2) {\
 			++p;\
 		}\
 	} while(0)
 
-#define EXPECT_TOKEN_3_0N(parser,p,token1,token2,token3) \
+#define EXPECT_TOKEN_3_0N(tree,p,token1,token2,token3) \
 	do {\
-		while (parser->tokens.id[p] == token1 || parser->tokens.id[p] == token2 || parser->tokens.id[p] == token3) {\
+		while (tree->tokens.id[p] == token1 || tree->tokens.id[p] == token2 || tree->tokens.id[p] == token3) {\
 			++p;\
 		}\
 	} while(0)
 
 struct html_parser_t {
-	struct html_tokens_t tokens;
 	html_token_idx_t current;
 
 	/* parse tree */
 	struct html_tree_t *restrict tree;
 
 	/* node stack */
-	html_token_idx_t node_stack[1000];
+	html_token_idx_t node_stack[HTML_PARSER_MAX_STACK_SIZE];
 	size_t node_stack_size;
 
 	/* parsing error handling */
@@ -66,6 +68,13 @@ struct html_parser_t {
 
 	/* flags */
 	unsigned int exception_pending :1;
+};
+
+struct html_builder_t {
+	const struct html_tokens_t *restrict tokens;
+	utf32_t *restrict output;
+	size_t current;
+	size_t max_size;
 };
 
 /* Lexical token analyzers */
@@ -94,7 +103,7 @@ int html_parse(const utf32_t *restrict in_data, size_t in_size, struct html_tree
 	struct html_parser_t parser = { 0 };
 	int processed;
 
-	int rc = html_lex(in_data, in_size, &parser.tokens);
+	int rc = html_lex(in_data, in_size, &tree->tokens);
 	if (__builtin_expect(rc != 0, 0)) {
 		return rc;
 	}
@@ -107,7 +116,7 @@ int html_parse(const utf32_t *restrict in_data, size_t in_size, struct html_tree
 	parser.node_stack_size = 1;
 
 	/* process all tokens */
-	while (parser.current < parser.tokens.count) {
+	while (parser.current < tree->tokens.count) {
 		processed = read_node(&parser);
 
 		if (processed) {
@@ -124,7 +133,7 @@ int html_parse(const utf32_t *restrict in_data, size_t in_size, struct html_tree
 
 	if (__builtin_expect(parser.exception_pending, 0)) {
 		const utf32_t *p;
-		const utf32_t *begin = parser.tokens.begin[parser.exception_location];
+		const utf32_t *begin = tree->tokens.begin[parser.exception_location];
 		int column_num = 0;
 		int line_num = 0;
 
@@ -151,7 +160,10 @@ int html_parse(const utf32_t *restrict in_data, size_t in_size, struct html_tree
 static int read_node(struct html_parser_t *restrict parser)
 {
 #ifdef TRACE_TOKENS
-	trace_token(parser->tokens.id[parser->current], parser->tokens.begin[parser->current], parser->tokens.end[parser->current] - parser->tokens.begin[parser->current]);
+	struct html_tokens_t *restrict tokens = &parser->tree->tokens;
+	trace_token(
+			tokens->id[parser->current], tokens->begin[parser->current],
+			tokens->end[parser->current] - tokens->begin[parser->current]);
 	++parser->current;
 	return 1;
 #endif
@@ -172,17 +184,17 @@ static int read_node_open_tag_attributes(struct html_parser_t *restrict parser, 
 	html_token_idx_t attrib_value = 0;
 	size_t attrib_idx = tree->attrib_count;
 
-	while (parser->tokens.id[p] == HTML_TOKEN_IDENTIFIER) {
+	while (tree->tokens.id[p] == HTML_TOKEN_IDENTIFIER) {
 		++p;
-		EXPECT_TOKEN_1_0N(parser, p, HTML_TOKEN_WHITESPACE);
+		EXPECT_TOKEN_1_0N(tree, p, HTML_TOKEN_WHITESPACE);
 
-		if (parser->tokens.id[p] == HTML_TOKEN_EQUAL) {
+		if (tree->tokens.id[p] == HTML_TOKEN_EQUAL) {
 			++p;
 
-			EXPECT_TOKEN_1_0N(parser, p, HTML_TOKEN_WHITESPACE);
+			EXPECT_TOKEN_1_0N(tree, p, HTML_TOKEN_WHITESPACE);
 			attrib_value = p;
-			EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_STRING);
-			EXPECT_TOKEN_1_0N(parser, p, HTML_TOKEN_WHITESPACE);
+			EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_STRING);
+			EXPECT_TOKEN_1_0N(tree, p, HTML_TOKEN_WHITESPACE);
 		}
 		else {
 			attrib_value = 0;
@@ -196,8 +208,8 @@ static int read_node_open_tag_attributes(struct html_parser_t *restrict parser, 
 		attrib_name = p;
 	}
 
-	EXPECT_TOKEN_1_0N(parser, p, HTML_TOKEN_WHITESPACE);
-	EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_GREATERTHAN);
+	EXPECT_TOKEN_1_0N(tree, p, HTML_TOKEN_WHITESPACE);
+	EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_GREATERTHAN);
 
 	tree->attrib_count = attrib_idx;
 	parser->current = p;
@@ -207,13 +219,15 @@ static int read_node_open_tag_attributes(struct html_parser_t *restrict parser, 
 
 static int read_node_open_tag(struct html_parser_t *restrict parser)
 {
+	struct html_tree_t *restrict tree = parser->tree;
+
 	html_token_idx_t p = parser->current;
 	html_token_idx_t tag_name = 0;
 
-	EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_LESSTHAN);
+	EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_LESSTHAN);
 	tag_name = p;
-	EXPECT_TOKEN_2_1(parser, p, HTML_TOKEN_IDENTIFIER, HTML_TOKEN_HTML);
-	EXPECT_TOKEN_1_0N(parser, p, HTML_TOKEN_WHITESPACE);
+	EXPECT_TOKEN_2_1(tree, p, HTML_TOKEN_IDENTIFIER, HTML_TOKEN_HTML);
+	EXPECT_TOKEN_1_0N(tree, p, HTML_TOKEN_WHITESPACE);
 
 	/* By this time, we are pretty certain that we are parsing a tag. If we are wrong, we'll
 	 * reset the state to undo the push_node operation
@@ -232,15 +246,17 @@ static int read_node_open_tag(struct html_parser_t *restrict parser)
 
 static int read_node_close_tag(struct html_parser_t *restrict parser)
 {
+	struct html_tree_t *restrict tree = parser->tree;
+
 	html_token_idx_t p = parser->current;
 	html_token_idx_t tag_name = 0;
 
-	EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_LESSTHAN);
-	EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_SLASH);
+	EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_LESSTHAN);
+	EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_SLASH);
 	tag_name = p;
-	EXPECT_TOKEN_2_1(parser, p, HTML_TOKEN_IDENTIFIER, HTML_TOKEN_HTML);
-	EXPECT_TOKEN_1_0N(parser, p, HTML_TOKEN_WHITESPACE);
-	EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_GREATERTHAN);
+	EXPECT_TOKEN_2_1(tree, p, HTML_TOKEN_IDENTIFIER, HTML_TOKEN_HTML);
+	EXPECT_TOKEN_1_0N(tree, p, HTML_TOKEN_WHITESPACE);
+	EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_GREATERTHAN);
 
 	pop_node(parser, tag_name);
 
@@ -250,17 +266,19 @@ static int read_node_close_tag(struct html_parser_t *restrict parser)
 
 static int read_node_variable(struct html_parser_t *restrict parser)
 {
+	struct html_tree_t *restrict tree = parser->tree;
+
 	html_token_idx_t p = parser->current;
 	html_token_idx_t var_name = 0;
 
-	EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_OPENBRACE);
-	EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_OPENBRACE);
-	EXPECT_TOKEN_1_0N(parser, p, HTML_TOKEN_WHITESPACE);
+	EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_OPENBRACE);
+	EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_OPENBRACE);
+	EXPECT_TOKEN_1_0N(tree, p, HTML_TOKEN_WHITESPACE);
 	var_name = p;
-	EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_IDENTIFIER);
-	EXPECT_TOKEN_1_0N(parser, p, HTML_TOKEN_WHITESPACE);
-	EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_CLOSEBRACE);
-	EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_CLOSEBRACE);
+	EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_IDENTIFIER);
+	EXPECT_TOKEN_1_0N(tree, p, HTML_TOKEN_WHITESPACE);
+	EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_CLOSEBRACE);
+	EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_CLOSEBRACE);
 
 	push_node(parser, var_name);
 	pop_node(parser, var_name);
@@ -271,8 +289,10 @@ static int read_node_variable(struct html_parser_t *restrict parser)
 
 static int read_node_text(struct html_parser_t *restrict parser)
 {
+	struct html_tree_t *restrict tree = parser->tree;
+
 	html_token_idx_t p = parser->current;
-	EXPECT_TOKEN_3_0N(parser, p, HTML_TOKEN_TEXT, HTML_TOKEN_WHITESPACE, HTML_TOKEN_IDENTIFIER);
+	EXPECT_TOKEN_3_0N(tree, p, HTML_TOKEN_TEXT, HTML_TOKEN_WHITESPACE, HTML_TOKEN_IDENTIFIER);
 
 	if (parser->current != p) {
 		parser->current = p;
@@ -284,9 +304,10 @@ static int read_node_text(struct html_parser_t *restrict parser)
 
 static int read_node_whitespace(struct html_parser_t *restrict parser)
 {
+	struct html_tree_t *restrict tree = parser->tree;
 	html_token_idx_t p = parser->current;
-	EXPECT_TOKEN_1_1(parser, p, HTML_TOKEN_WHITESPACE);
-	EXPECT_TOKEN_1_0N(parser, p, HTML_TOKEN_WHITESPACE);
+	EXPECT_TOKEN_1_1(tree, p, HTML_TOKEN_WHITESPACE);
+	EXPECT_TOKEN_1_0N(tree, p, HTML_TOKEN_WHITESPACE);
 	parser->current = p;
 	return 1;
 }
@@ -294,7 +315,8 @@ static int read_node_whitespace(struct html_parser_t *restrict parser)
 /* Parse tree operations */
 static void pop_node(struct html_parser_t *restrict parser, html_token_idx_t tag_name)
 {
-	html_token_id_t *restrict id = parser->tokens.id;
+	struct html_tree_t *restrict tree = parser->tree;
+	html_token_id_t *restrict id = tree->tokens.id;
 	int32_t i;
 
 	for (i=parser->node_stack_size-1; i>0; --i) {
@@ -325,12 +347,12 @@ static void push_node(struct html_parser_t *restrict parser, html_token_idx_t ta
 	}
 }
 
-static char *get_token_string(struct html_parser_t *restrict parser, html_token_idx_t id)
+static char *get_token_string(const struct html_tree_t *restrict tree, html_token_idx_t id)
 {
 	char *str;
 	size_t size = 1;
-	const utf32_t *begin = parser->tokens.begin[id];
-	const utf32_t *end = parser->tokens.end[id];
+	const utf32_t *begin = tree->tokens.begin[id];
+	const utf32_t *end = tree->tokens.end[id];
 
 	unicode_write_utf8_string(begin, end-begin, &str, &size);
 	str[size] = 0;
@@ -345,8 +367,8 @@ static void dump_parse_table(struct html_parser_t *restrict parser)
 
 	printf("nodes:\n");
 	for (i=0; i < tree->node_count; ++i) {
-		char *parent = get_token_string(parser, tree->node_parent[i]);
-		char *tag_name = get_token_string(parser, tree->node_tag_name[i]);
+		char *parent = get_token_string(tree, tree->node_parent[i]);
+		char *tag_name = get_token_string(tree, tree->node_tag_name[i]);
 
 		printf("\ttag[%s]\tparent[%s]\n", tag_name, tree->node_parent[i]? parent : "");
 
@@ -356,9 +378,9 @@ static void dump_parse_table(struct html_parser_t *restrict parser)
 
 	printf("\nattributes:\n");
 	for (i=0; i < tree->attrib_count; ++i) {
-		char *parent = get_token_string(parser, tree->attrib_parent[i]);
-		char *name = get_token_string(parser, tree->attrib_name[i]);
-		char *value = get_token_string(parser, tree->attrib_value[i]);
+		char *parent = get_token_string(tree, tree->attrib_parent[i]);
+		char *name = get_token_string(tree, tree->attrib_name[i]);
+		char *value = get_token_string(tree, tree->attrib_value[i]);
 
 		printf("\tname[%s]\tvalue[%s]\tparent[%s]\n", name, tree->attrib_value[i] ? value : "true", parent);
 
@@ -467,8 +489,75 @@ static void trace_token(html_token_id_t token_id, const utf32_t *restrict in_dat
 }
 #endif
 
-void html_build(utf32_t **out_data, size_t *out_size, const struct html_tree_t *restrict tree)
+static void append_token(struct html_builder_t *builder, html_token_idx_t token_idx)
 {
+	const utf32_t *begin = builder->tokens->begin[token_idx];
+	size_t size = builder->tokens->end[token_idx] - begin;
+	memcpy(builder->output + builder->current, begin, size * sizeof(utf32_t));
+	builder->current += size;
+	builder->max_size -= size;
+}
+
+void html_build(
+		utf32_t *restrict *restrict out_data, size_t *restrict out_size,
+		const struct html_tree_t *restrict tree)
+{
+	/* create a lookup table to locate an instance of a token given its id */
+	html_token_idx_t token_idx[HTML_TOKEN_END];
+	const struct html_tokens_t *restrict tokens = &tree->tokens;
+	html_token_idx_t idx;
+
+	for (idx=0; idx < tokens->count; ++idx) {
+		html_token_id_t id = tokens->id[idx];
+		token_idx[id] = idx;
+	}
+
+	/* node stack */
+	html_token_idx_t node_stack[HTML_PARSER_MAX_STACK_SIZE];
+	size_t node_stack_size = 0;
+
+	/* allocate memory for output data */
+	*out_size = HTML_PARSER_MAX_SIZE;
+	*out_data = malloc(HTML_PARSER_MAX_SIZE * sizeof(utf32_t));
+
+	size_t i;
+	struct html_builder_t builder = {0};
+
+	builder.tokens = tokens;
+	builder.output = *out_data;
+	builder.max_size = HTML_PARSER_MAX_SIZE;
+
+	for (i=0; i < tree->node_count; ++i) {
+		html_token_idx_t tag_name = tree->node_tag_name[i];
+		html_token_idx_t parent = tree->node_parent[i];
+
+		/* write closing tags if we moved to a sibling node or a parent node */
+		while (node_stack_size > 0 && parent != node_stack[node_stack_size-1]) {
+			append_token(&builder, token_idx[HTML_TOKEN_LESSTHAN]);
+			append_token(&builder, token_idx[HTML_TOKEN_SLASH]);
+			append_token(&builder, node_stack[node_stack_size-1]);
+			append_token(&builder, token_idx[HTML_TOKEN_GREATERTHAN]);
+
+			--node_stack_size;
+		}
+
+		append_token(&builder, token_idx[HTML_TOKEN_LESSTHAN]);
+		append_token(&builder, tag_name);
+		append_token(&builder, token_idx[HTML_TOKEN_GREATERTHAN]);
+
+		node_stack[node_stack_size] = tag_name;
+		++node_stack_size;
+	}
+
+	for (; node_stack_size > 0; --node_stack_size) {
+		append_token(&builder, token_idx[HTML_TOKEN_LESSTHAN]);
+		append_token(&builder, token_idx[HTML_TOKEN_SLASH]);
+		append_token(&builder, node_stack[node_stack_size-1]);
+		append_token(&builder, token_idx[HTML_TOKEN_GREATERTHAN]);
+	}
+
+
+	*out_size = builder.current;
 }
 
 
